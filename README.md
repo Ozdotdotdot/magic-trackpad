@@ -67,6 +67,19 @@ on the pad should buzz. Logs live at `journalctl -u magicmusic -f`.
 
 To run it by hand instead (development): `sudo python3 magicmusic.py`.
 
+### Seamless reconnection
+
+So the trackpad reconnects on its own when you switch it on (rather than only when
+you open the Bluetooth settings panel), mark it trusted once:
+
+```sh
+bluetoothctl trust <trackpad-MAC>     # e.g. C0:95:6D:02:88:91
+```
+
+The trackpad is Bluetooth Classic and pages the host to reconnect on power-on, but
+BlueZ only auto-accepts that page if the device is trusted. Pairing alone does not
+set this. The setting persists across reboots.
+
 ## Configuration
 
 All knobs live in **`/etc/magicmusic.toml`** (installed from `deploy/magicmusic.toml`,
