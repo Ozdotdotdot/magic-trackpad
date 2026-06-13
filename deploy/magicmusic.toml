@@ -1,4 +1,4 @@
-# Magic Music configuration — installed to /etc/magicmusic.toml
+# Magic Music configuration. Installed to /etc/magicmusic.toml
 #
 # Every key is optional; anything you omit uses the built-in default shown here.
 # Edit and then `sudo systemctl restart magicmusic` to apply.

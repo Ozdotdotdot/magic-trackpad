@@ -1,5 +1,5 @@
 [Unit]
-Description=Magic Music — Magic Trackpad 2 music controls
+Description=Magic Music, Magic Trackpad 2 music controls
 After=bluetooth.target
 Wants=bluetooth.target
 

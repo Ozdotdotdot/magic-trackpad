@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Magic Music installer — wires up driver persistence, the daemon, and the service.
+# Magic Music installer. Wires up driver persistence, the daemon, and the service.
 #
 #   sudo ./deploy/install.sh
 #

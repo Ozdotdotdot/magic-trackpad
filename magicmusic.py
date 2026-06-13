@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Magic Music — Phase 2 (COSMIC edition).
+Magic Music, for COSMIC (Wayland).
 
-On COSMIC, 3-finger gestures are unclaimed (no scroll, no workspace — that's
+On COSMIC, 3-finger gestures are unclaimed (no scroll, no workspace, that's
 4-finger), so we read the trackpad PASSIVELY. No EVIOCGRAB, no virtual device,
 no phantom-touch bugs.
 
@@ -63,7 +63,7 @@ SKIP_BUZZ        = _c("skip_buzz", 0x35)        # firmer buzz per track skip
 TAP_BUZZ         = _c("tap_buzz", 0x3f)         # strong play/pause confirm
 
 # the daemon runs as root (for raw hidraw/evdev), but wpctl needs to reach the
-# user's PipeWire session — so drop to that uid for the volume call. Under systemd
+# user's PipeWire session, so drop to that uid for the volume call. Under systemd
 # the service sets MM_UID/MM_GID; when run by hand under sudo, SUDO_UID is used.
 USER_UID = int(os.environ.get("MM_UID") or os.environ.get("SUDO_UID") or 1000)
 USER_GID = int(os.environ.get("MM_GID") or os.environ.get("SUDO_GID") or USER_UID)
