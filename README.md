@@ -110,11 +110,12 @@ for most:
 - Node numbers renumber across reboots, so the daemon finds the trackpad by name
   (`Apple Inc. Magic Trackpad 2`) and the `0265` hidraw, not by fixed paths.
 
+COSMIC's on-screen volume display shows up on the `wpctl` changes too, so you get
+the OSD *and* fine control for free.
+
 ## Ideas left on the table
 
 - **Seek within a track** (e.g. a different gesture or a force-hold + slide).
-- **Volume OSD** — `wpctl` doesn't trigger COSMIC's on-screen display; injecting
-  `KEY_VOLUMEUP/DOWN` does but is locked to COSMIC's coarse step. A custom OSD is open.
 - **Go rewrite?** Considered and declined: it's a ~250-line stdlib+evdev script that
   works; a static binary isn't worth losing Python's iteration speed and `python-evdev`'s
   maturity. Stay in Python.
