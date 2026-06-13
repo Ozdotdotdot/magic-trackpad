@@ -11,9 +11,14 @@ system volume is **PipeWire** (via `wpctl`).
 
 | Gesture | Action |
 |---|---|
+| 3 fingers down | "ready" buzz — gesture mode armed |
 | 3-finger vertical slide | Volume (absolute slider, haptic tick per notch) |
-| 3 fingers down | "ready" buzz — you've entered volume mode |
+| 3-finger horizontal slide | Next / previous track (`mpc next`/`prev`), one skip per swipe |
 | 1-finger force-click (hard press) | Play/pause (`mpc toggle`) |
+
+The first move past the dead zone **locks the gesture to one axis** (whichever
+dominates), so volume and track-skip never cross-fire. Track-skip is one-shot
+per swipe — lift and swipe again to skip another.
 
 Normal 1- and 2-finger use is untouched. 4-finger stays free for COSMIC's
 workspace gestures (a short debounce keeps the 4-finger transient from buzzing).

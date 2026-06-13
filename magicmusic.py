@@ -7,10 +7,14 @@ On COSMIC, 3-finger gestures are unclaimed (no scroll, no workspace — that's
 no phantom-touch bugs.
 
 Controls:
-  - 3 fingers down            -> "ready" buzz (you're entering volume mode)
-  - 3-finger vertical slide   -> volume, haptic tick per step (up = louder)
+  - 3 fingers down            -> "ready" buzz (gesture mode armed)
+  - 3-finger VERTICAL slide   -> volume, haptic tick per notch (up = louder)
+  - 3-finger HORIZONTAL slide -> next/prev track (`mpc next`/`prev`), buzz per skip
   - 1-finger force-click >180 -> play/pause (`mpc toggle`). No movement check,
                                  so a hard press never needs to hold still.
+
+The first move past the dead zone LOCKS the gesture to one axis (whichever
+dominates), so volume and track-skip never trigger each other.
 
 Run with sudo (needs raw access to the evdev + hidraw nodes):
     sudo python3 magicmusic.py
@@ -32,7 +36,9 @@ STEP_DISTANCE = 90         # *** the knob you asked for *** trackpad units of fi
                            # volume changes more slowly. Pad Y span ~5000u (printed at start).
 VOL_DELTA_PCT = 2          # volume change per notch (percent). Pair with STEP_DISTANCE:
                            # raise both together to keep sensitivity but space out buzzes.
-VOLUME_DEADZONE = 200      # Y units of slide to ignore after 3 fingers land
+SKIPS_ACROSS_PAD = 3       # horizontal: a full-width 3-finger swipe = this many track skips
+                           # (higher = need a shorter swipe per skip; lower = longer swipe)
+VOLUME_DEADZONE = 200      # units of slide to ignore after 3 fingers land (axis-lock gate)
 READY_DEBOUNCE = 0.04      # seconds 3 fingers must persist before the ready buzz
                            # (filters the 3-finger transient of a 4-finger swipe)
 SINK = "@DEFAULT_AUDIO_SINK@"
@@ -74,8 +80,9 @@ def set_volume_abs(level):
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     ))
 
-READY_BUZZ = 0x2a          # 3 fingers landed -> volume mode ready
+READY_BUZZ = 0x2a          # 3 fingers landed -> gesture mode ready
 TICK_BUZZ = 0x12           # light per-volume-step tick
+SKIP_BUZZ = 0x35           # firmer buzz per track skip
 TAP_BUZZ = 0x3f            # strong play/pause confirm
 # -------------------------------------------------------------------------
 
@@ -112,12 +119,15 @@ def main():
     dev = find_trackpad_event()
     hid = open(find_hidraw(), "wb", buffering=0)
     yinfo = dev.absinfo(ecodes.ABS_Y)
+    xinfo = dev.absinfo(ecodes.ABS_X)
     step_units = max(1, STEP_DISTANCE)
-    print(f"trackpad: {dev.name} @ {dev.path}")
+    skip_units = max(1, (xinfo.max - xinfo.min) // SKIPS_ACROSS_PAD)
     notches = (yinfo.max - yinfo.min) // step_units
-    print(f"Y range : {yinfo.min}..{yinfo.max}  ({step_units}u/notch -> "
-          f"~{notches} notches -> ~{notches * VOL_DELTA_PCT}% volume swept across the full pad)")
-    print(f"3 fingers = volume slide, 1-finger force-click ({FORCE_CLICK}) = play/pause. Ctrl-C to quit.\n")
+    print(f"trackpad: {dev.name} @ {dev.path}")
+    print(f"vertical  : {step_units}u/notch -> ~{notches} notches -> "
+          f"~{notches * VOL_DELTA_PCT}% volume across the full pad")
+    print(f"horizontal: {skip_units}u/skip -> {SKIPS_ACROSS_PAD} skips across the full pad")
+    print(f"3-finger = volume/skip, 1-finger force-click ({FORCE_CLICK}) = play/pause. Ctrl-C to quit.\n")
 
     def buzz(strength):
         hid.write(haptic_report(strength))
@@ -126,22 +136,25 @@ def main():
     cur_slot = 0
     active = set()      # MT slots currently holding a finger
     pressure = 0
+    x = 0
     y = 0
     # decision state, evaluated per SYN frame
-    volume_latched = False   # set after 3 fingers persist past the debounce
+    gesture_latched = False  # set after 3 fingers persist past the debounce
     pending_deadline = None  # monotonic time at which a tentative 3-finger buzz fires
-    anchor_y = 0             # finger Y the volume slide is measured from
-    anchor_vol = 0.0         # system volume (0-1) when volume engaged
+    axis = None              # locked to "vol" or "track" on first move past the dead zone
+    anchor_x = 0             # finger X/Y the slide is measured from (re-anchored at lock)
+    anchor_y = 0
+    anchor_vol = 0.0         # system volume (0-1) when a volume slide locks
     last_step = 0
-    slide_armed = False      # have we moved past the one-time dead zone yet?
+    skip_fired = False       # track-skip is one-shot per swipe
     pp_armed = True
 
-    def engage_volume():
-        nonlocal volume_latched, anchor_y, anchor_vol, last_step, slide_armed
-        volume_latched, anchor_y, last_step, slide_armed = True, y, 0, False
-        buzz(READY_BUZZ)           # instant feedback first
-        anchor_vol = get_volume()  # then read the slider's starting point
-        print(f"3 fingers -> volume ready (from {anchor_vol:.0%})")
+    def engage_gesture():
+        nonlocal gesture_latched, axis, anchor_x, anchor_y, last_step, skip_fired
+        gesture_latched, axis, last_step, skip_fired = True, None, 0, False
+        anchor_x, anchor_y = x, y
+        buzz(READY_BUZZ)
+        print("3 fingers -> ready")
 
     while True:
         # wake on input, or when a pending ready-buzz is due to fire
@@ -151,8 +164,8 @@ def main():
         # debounce fired with three fingers still down -> engage now
         if pending_deadline is not None and time.monotonic() >= pending_deadline:
             pending_deadline = None
-            if len(active) == 3 and not volume_latched:
-                engage_volume()
+            if len(active) == 3 and not gesture_latched:
+                engage_gesture()
 
         if not ready:
             continue
@@ -165,6 +178,8 @@ def main():
                     active.discard(cur_slot) if e.value == -1 else active.add(cur_slot)
                 elif e.code in (ecodes.ABS_PRESSURE, ecodes.ABS_MT_PRESSURE):
                     pressure = e.value
+                elif e.code == ecodes.ABS_X:
+                    x = e.value
                 elif e.code == ecodes.ABS_Y:
                     y = e.value
                 continue
@@ -177,38 +192,56 @@ def main():
 
             # full lift resets the latch (so the ready buzz fires once per touch,
             # immune to 3->2->3 finger-count flicker while fingers settle)
-            if fingers == 0 and volume_latched:
-                print(f"  volume done ({last_step:+d} steps)")
-                volume_latched = False
+            if fingers == 0 and gesture_latched:
+                print(f"  done ({axis or 'idle'} {last_step:+d})")
+                gesture_latched = False
 
             # tentatively start the debounce on 3 fingers; cancel it the instant
             # the count isn't 3 (e.g. a 4th finger lands -> workspace swipe)
-            if fingers == 3 and not volume_latched:
+            if fingers == 3 and not gesture_latched:
                 if pending_deadline is None:
                     pending_deadline = time.monotonic() + READY_DEBOUNCE
             else:
                 pending_deadline = None
 
-            # volume: absolute target from how far you've slid off the anchor
-            # (up = louder; ABS_Y grows downward). The dead zone is a one-time gate:
-            # ignore the first VOLUME_DEADZONE of travel (so a tap won't nudge it),
-            # then re-anchor and track 1:1 with no sticky band around the anchor.
-            if volume_latched and fingers == 3:
-                if not slide_armed and abs(anchor_y - y) > VOLUME_DEADZONE:
-                    slide_armed = True
-                    anchor_y = y          # re-anchor; volume stays at anchor_vol here
-                if slide_armed:
+            # the first move past the dead zone locks the gesture to one axis;
+            # whichever direction dominates wins, so volume and skip never cross-fire
+            if gesture_latched and fingers == 3:
+                if axis is None:
+                    dx, dy = x - anchor_x, anchor_y - y   # dy: up = positive
+                    if max(abs(dx), abs(dy)) > VOLUME_DEADZONE:
+                        last_step = 0
+                        if abs(dy) >= abs(dx):
+                            axis, anchor_y, anchor_vol = "vol", y, get_volume()
+                            print(f"  volume (from {anchor_vol:.0%})")
+                        else:
+                            axis, anchor_x = "track", x
+                            print("  track-skip")
+
+                if axis == "vol":
+                    # absolute slider: target from distance off the (re-)anchor
                     step = (anchor_y - y) // step_units
                     if step != last_step:
                         target = min(1.0, max(0.0, anchor_vol + step * VOL_DELTA_PCT / 100))
                         set_volume_abs(target)
                         buzz(TICK_BUZZ)
                         last_step = step
+                elif axis == "track" and not skip_fired:
+                    # exactly ONE skip per swipe; symmetric threshold both directions.
+                    # int() truncates toward zero (unlike // which floors -0.001 to -1,
+                    # which made left-swipes fire instantly and over-skip on jitter).
+                    step = int((x - anchor_x) / skip_units)
+                    if step != 0:
+                        cmd = "next" if step > 0 else "prev"
+                        run("mpc", cmd)
+                        buzz(SKIP_BUZZ)
+                        skip_fired = True
+                        print(f"  {cmd}")
 
             # play/pause: 1-finger force-click, no movement check
             if pressure <= PRESSURE_REARM:
                 pp_armed = True
-            elif pp_armed and fingers == 1 and not volume_latched and pressure >= FORCE_CLICK:
+            elif pp_armed and fingers == 1 and not gesture_latched and pressure >= FORCE_CLICK:
                 pp_armed = False
                 run("mpc", "toggle")
                 buzz(TAP_BUZZ)
