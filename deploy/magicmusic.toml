@@ -33,7 +33,6 @@ ready_buzz = 0x2a          # 3 fingers landed -> gesture mode ready
 tick_buzz  = 0x12          # light per-volume-step tick
 skip_buzz  = 0x35          # firmer buzz per track skip
 tap_buzz   = 0x3f          # force-click down-click (firm play/pause confirm)
-lights_buzz = 0x35         # confirm buzz when the 5-finger double-tap toggles lights
 
 # up-click fired as a force-press lifts, for a real two-actuation click feel.
 # Mirrors the firmware's button_up waveform; differs from the down-click in

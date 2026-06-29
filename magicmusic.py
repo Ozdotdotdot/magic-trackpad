@@ -74,7 +74,6 @@ TAP_BUZZ         = _c("tap_buzz", 0x3f)         # firm play/pause confirm (down-
 RELEASE_BUZZ     = _c("release_buzz", 0x11)     # up-click strength (b3)
 RELEASE_B6       = _c("release_b6", 0x04)       # up-click texture (b6)
 RELEASE_B11      = _c("release_b11", 0x04)      # up-click texture (b11)
-LIGHTS_BUZZ      = _c("lights_buzz", 0x35)      # confirm buzz for the lights toggle
 
 # the daemon runs as root (for raw hidraw/evdev), but wpctl needs to reach the
 # user's PipeWire session, so drop to that uid for the volume call. Under systemd
@@ -284,7 +283,7 @@ def main():
                 if tap_peak == 5 and now - touch_start <= TAP_MAX_DURATION:
                     if last_tap and now - last_tap <= DOUBLE_TAP_GAP:
                         run_bg("curl", "-s", "-m", "5", LIGHTS_URL)
-                        buzz(LIGHTS_BUZZ)
+                        buzz(READY_BUZZ)   # same light tap as the 3-finger ready buzz
                         print("5-finger double-tap -> lights")
                         last_tap = 0.0      # consume, so a 3rd tap doesn't re-toggle
                     else:
