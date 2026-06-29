@@ -12,6 +12,8 @@ Controls:
   - 3-finger HORIZONTAL slide -> next/prev track (`mpc next`/`prev`), buzz per skip
   - 1-finger force-click >180 -> play/pause (`mpc toggle`). No movement check,
                                  so a hard press never needs to hold still.
+  - 3-finger force-click >180 -> play/pause (`playerctl play-pause`), for any
+                                 MPRIS player (Spotify, browsers, etc.).
 
 The first move past the dead zone LOCKS the gesture to one axis (whichever
 dominates), so volume and track-skip never trigger each other.
@@ -67,12 +69,27 @@ TAP_BUZZ         = _c("tap_buzz", 0x3f)         # strong play/pause confirm
 # the service sets MM_UID/MM_GID; when run by hand under sudo, SUDO_UID is used.
 USER_UID = int(os.environ.get("MM_UID") or os.environ.get("SUDO_UID") or 1000)
 USER_GID = int(os.environ.get("MM_GID") or os.environ.get("SUDO_GID") or USER_UID)
-USER_ENV = {"XDG_RUNTIME_DIR": f"/run/user/{USER_UID}", "PATH": "/usr/bin:/bin"}
+# wpctl reaches PipeWire via XDG_RUNTIME_DIR; playerctl reaches MPRIS players over
+# the user's DBus session bus, so point DBUS_SESSION_BUS_ADDRESS at it explicitly.
+USER_ENV = {
+    "XDG_RUNTIME_DIR": f"/run/user/{USER_UID}",
+    "DBUS_SESSION_BUS_ADDRESS": f"unix:path=/run/user/{USER_UID}/bus",
+    "PATH": "/usr/bin:/bin",
+}
 
 
 def _drop_to_user():
     os.setgid(USER_GID)
     os.setuid(USER_UID)
+
+
+def run_as_user(*cmd):
+    """Run a command as the logged-in user (for tools that need their session bus,
+    e.g. playerctl), non-blocking so the event loop never stalls."""
+    subprocess.Popen(
+        cmd, env=USER_ENV, preexec_fn=_drop_to_user,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
 
 
 def get_volume():
@@ -157,7 +174,8 @@ def main():
     print(f"vertical  : {step_units}u/notch -> ~{notches} notches -> "
           f"~{notches * VOL_DELTA_PCT}% volume across the full pad")
     print(f"horizontal: {skip_units}u/skip -> {SKIPS_ACROSS_PAD} skips across the full pad")
-    print(f"3-finger = volume/skip, 1-finger force-click ({FORCE_CLICK}) = play/pause. Ctrl-C to quit.\n")
+    print(f"3-finger = volume/skip, force-click ({FORCE_CLICK}) = play/pause "
+          f"(1-finger -> mpc, 3-finger -> playerctl). Ctrl-C to quit.\n")
 
     def buzz(strength):
         hid.write(haptic_report(strength))
@@ -268,14 +286,22 @@ def main():
                         skip_fired = True
                         print(f"  {cmd}")
 
-            # play/pause: 1-finger force-click, no movement check
+            # play/pause: force-click, no movement check. 1 finger -> mpc toggle
+            # (MPD); 3 fingers -> playerctl play-pause (whatever MPRIS player is
+            # active). One re-arm flag, so a single click fires exactly one action.
             if pressure <= PRESSURE_REARM:
                 pp_armed = True
-            elif pp_armed and fingers == 1 and not gesture_latched and pressure >= FORCE_CLICK:
-                pp_armed = False
-                run("mpc", "toggle")
-                buzz(TAP_BUZZ)
-                print(f"force-click (p={pressure}) -> play/pause")
+            elif pp_armed and pressure >= FORCE_CLICK:
+                if fingers == 1 and not gesture_latched:
+                    pp_armed = False
+                    run("mpc", "toggle")
+                    buzz(TAP_BUZZ)
+                    print(f"force-click (p={pressure}) -> play/pause")
+                elif fingers == 3:
+                    pp_armed = False
+                    run_as_user("playerctl", "play-pause")
+                    buzz(TAP_BUZZ)
+                    print(f"3-finger force-click (p={pressure}) -> playerctl play-pause")
 
 
 if __name__ == "__main__":

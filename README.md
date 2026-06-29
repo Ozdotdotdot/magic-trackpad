@@ -9,10 +9,11 @@ Built and tested on **CachyOS / COSMIC (Wayland)**. Music playback is **MPD**,
 controlled with `mpc`. System volume is **PipeWire**, controlled with `wpctl`.
 
 ```
-3 fingers down              ->  "ready" buzz (gesture mode armed)
+3 fingers down               ->  "ready" buzz (gesture mode armed)
 3-finger slide UP/DOWN       ->  volume (absolute slider, tick per notch)
 3-finger slide LEFT/RIGHT    ->  previous / next track (one skip per swipe)
-1-finger hard press (force)  ->  play / pause
+1-finger hard press (force)  ->  play / pause (MPD, via mpc)
+3-finger hard press (force)  ->  play / pause (any MPRIS player, via playerctl)
 ```
 
 The first move past a small dead zone **locks the gesture to one axis** (vertical
@@ -54,6 +55,8 @@ a reboot reverts to the plain driver and you would have to `modprobe` by hand ea
   third-party import.
 - Python 3.11+ (for `tomllib`). Tested on 3.14.
 - `mpc` (an MPD client) and `wpctl` (WirePlumber) on `PATH`.
+- `playerctl` for the 3-finger force-click (controls any MPRIS player). Optional:
+  without it that one gesture just no-ops.
 
 ## Install
 
@@ -116,7 +119,8 @@ reach for most:
 - **Privilege split.** The daemon runs as root (raw hidraw + evdev), but `wpctl` needs the
   *user's* PipeWire session, so the volume subprocess drops to the user's uid/gid
   (`MM_UID`/`MM_GID` from the service, or `SUDO_UID` when run by hand) with their
-  `XDG_RUNTIME_DIR`. `mpc` works as root directly, since it talks over a TCP socket.
+  `XDG_RUNTIME_DIR`. `playerctl` drops to the user the same way (it needs their DBus
+  session bus). `mpc` works as root directly, since it talks over a TCP socket.
 
 ### Machine-specific quirks worth knowing
 
